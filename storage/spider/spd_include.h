@@ -107,7 +107,6 @@
 
 #define SPIDER_read_record_read_record(A) read_record()
 #define SPIDER_has_Item_with_subquery
-#define SPIDER_use_LEX_CSTRING_for_Field_blob_constructor
 #define SPIDER_use_LEX_CSTRING_for_database_tablename_alias
 #define SPIDER_THD_db_str(A) (A)->db.str
 #define SPIDER_THD_db_length(A) (A)->db.length
@@ -149,9 +148,14 @@ typedef start_new_trans *SPIDER_Open_tables_backup;
 #define spider_bit_is_set(BITMAP, BIT) \
   (uint) ((BITMAP)[(BIT) / 8] & (1 << ((BIT) & 7)))
 
+/* Change status of the remote backend server link. */
+/* 0 Doesn't change status.  */
 #define SPIDER_LINK_STATUS_NO_CHANGE         0
+/* 1 Changes status to OK.  */
 #define SPIDER_LINK_STATUS_OK                1
+/* 2 Changes status to RECOVERY.  */
 #define SPIDER_LINK_STATUS_RECOVERY          2
+/* 3 Changes status to no more in group communication. */
 #define SPIDER_LINK_STATUS_NG                3
 
 #define SPIDER_LINK_MON_OK                   0
@@ -700,15 +704,20 @@ typedef struct st_spider_share
   char               *table_name;
   uint               table_name_length;
   uint               use_count;
+  /**
+    Probably equals `active_link_count`.  See also commit ddff602 of
+    https://github.com/nayuta-yanagisawa/spider-history
+
+    Fixme: consider removing it.
+  */
   uint               link_count;
+  /* Number of all links, i.e. all remote servers for the spider
+  table. */
   uint               all_link_count;
   uint               link_bitmap_size;
   pthread_mutex_t    mutex;
   pthread_mutex_t    sts_mutex;
   pthread_mutex_t    crd_mutex;
-/*
-  pthread_mutex_t    auto_increment_mutex;
-*/
   TABLE_SHARE        *table_share;
   SPIDER_LGTM_TBLHND_SHARE *lgtm_tblhnd_share;
   my_hash_value_type table_name_hash_value;
@@ -771,10 +780,6 @@ typedef struct st_spider_share
 
   MEM_ROOT           mem_root;
 
-/*
-  volatile bool      auto_increment_init;
-  volatile ulonglong auto_increment_lclval;
-*/
   ha_statistics      stat;
 
   longlong           static_records_for_status;
@@ -847,6 +852,8 @@ typedef struct st_spider_share
   int                read_only_mode;
   int                error_read_mode;
   int                error_write_mode;
+  /* Number of active remote servers, for use in load balancing read
+  connections */
   int                active_link_count;
 #ifdef HA_CAN_FORCE_BULK_UPDATE
   int                force_bulk_update;
@@ -886,6 +893,7 @@ typedef struct st_spider_share
   char               **conn_keys;
   long               *tgt_ports;
   long               *tgt_ssl_vscs;
+  /* See SPIDER_LINK_STATUS_* in spd_include.h */
   long               *link_statuses;
   long               *monitoring_bg_flag;
   long               *monitoring_bg_kind;
