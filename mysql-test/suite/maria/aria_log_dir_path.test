@@ -1,0 +1,57 @@
+--source include/have_maria.inc
+--let $datadir= `SELECT @@datadir`
+
+--echo #
+--echo # MDEV-30971 Add a new system variable aria_data_home_dir
+--echo #
+
+#
+# Test that:
+# - aria_log_dir_path is set to a non-default directory.
+# - Aria log files in the default location are not needed.
+# - New Aria log files are created in the non-default directory.
+# - The contents of the log directory (according to "file_exists" commands)
+#   is in sync with the "SHOW ENGINE aria logs" ouput.
+#
+
+SET @@global.aria_log_purge_type=external;
+
+SHOW VARIABLES LIKE 'aria_log_file_size';
+--replace_result $MYSQLTEST_VARDIR MYSQLTEST_VARDIR
+SELECT @@aria_log_dir_path;
+
+# Remove the log files in the default directory.
+# They were created during bootstrap, they are not needed any more.
+--remove_file $datadir/aria_log_control
+--remove_file $datadir/aria_log.00000001
+
+SET @@global.aria_checkpoint_interval=DEFAULT /*Force checkpoint*/;
+--file_exists $MYSQLTEST_VARDIR/tmp/aria_log_control
+--file_exists $MYSQLTEST_VARDIR/tmp/aria_log.00000001
+--error 1
+--file_exists $MYSQLTEST_VARDIR/tmp/aria_log.00000002
+--replace_regex /Size +[0-9]+ ; .+aria_log/aria_log/
+SHOW ENGINE aria logs;
+
+
+CREATE TABLE t1 (id INT, txt LONGTEXT) ENGINE=Aria;
+DELIMITER $$;
+BEGIN NOT ATOMIC
+  FOR id IN 0..9 DO
+    INSERT INTO test.t1 (id, txt) VALUES (id, REPEAT(id,1024*1024));
+  END FOR;
+END;
+$$
+DELIMITER ;$$
+
+
+SET @@global.aria_checkpoint_interval=DEFAULT /*Force checkpoint*/;
+--file_exists $MYSQLTEST_VARDIR/tmp/aria_log_control
+--file_exists $MYSQLTEST_VARDIR/tmp/aria_log.00000001
+--file_exists $MYSQLTEST_VARDIR/tmp/aria_log.00000002
+--replace_regex /Size +[0-9]+ ; .+aria_log/aria_log/
+SHOW ENGINE aria logs;
+
+DROP TABLE t1;
+
+SET @@global.aria_log_purge_type=DEFAULT;
